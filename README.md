@@ -1,8 +1,21 @@
 # Veera SOH Battery ML Pipeline
 
-This project extracts high-volume battery log data from PostgreSQL/TimescaleDB and stores it locally as Parquet for later battery analytics work.
+This project extracts high-volume battery telemetry from PostgreSQL/TimescaleDB, stores it locally as Parquet, and turns the raw second-level logs into operating-mode events, full-discharge capacity measurements, validated SOH trend models, and 10-year capacity forecasts.
 
-The first phase focuses on database extraction from `data_harvest.datalogger_hvb` into local Parquet files. The structure is ready to extend with preprocessing, feature engineering, mode-aware anomaly detection, capacity integration, SOH analysis, and degradation modeling.
+The pipeline is designed as a layered local-processing workflow. The database is used only for raw extraction; downstream stages read local Parquet layers. This makes the workflow reusable across serial numbers, scalable to large monthly extracts, and traceable from raw telemetry to forecast outputs.
+
+Core pipeline:
+
+```text
+TimescaleDB telemetry
+-> raw Parquet extraction
+-> row-level operating mode classification
+-> event segmentation including missing telemetry gaps
+-> discharge usage ledger and full 100%-to-0% capacity measurements
+-> usage-based capacity/SOH degradation model
+-> cutoff validation against hidden future data
+-> 10-year SOH forecast with 80% threshold and uncertainty estimate
+```
 
 ## Why Parquet
 
@@ -23,6 +36,8 @@ Required packages:
 - `numpy` for capacity trend regression and forecast calculations
 - `pyarrow` for Parquet writing
 - `python-dotenv` for `.env` loading
+- `plotly` for interactive HTML validation and forecast graphs
+- `matplotlib` for Confluence-ready static PNG reports
 
 ## Configure
 
@@ -68,10 +83,14 @@ EXPECTED_SAMPLE_INTERVAL_SECONDS=1.0
 MISSING_GAP_THRESHOLD_SECONDS=60.0
 EXTRACTION_COLUMN_PROFILE=soh_core
 REST_CURRENT_THRESHOLD_A=0.5
-NOMINAL_CAPACITY_AH=50.0
+# Optional. Leave empty to use capacity_ah from event_discharge_id 1.
+NOMINAL_CAPACITY_AH=
 BMS_SOH_RELIABLE_AFTER=2025-03-21T18:45:00+00:00
 MIN_REASONABLE_CAPACITY_AH=30.0
 MAX_REASONABLE_CAPACITY_AH=55.0
+USAGE_RATE_MODES=historical_mean,historical_median,recent_median
+USAGE_RATE_MODE=historical_mean
+RECENT_USAGE_DAYS=90
 ```
 
 Never commit `.env` or extracted raw data.
@@ -294,7 +313,7 @@ trusted 100% SOC anchor
 rest is allowed
 sum only observed discharging Ah/Wh
 rest is allowed
-trusted 0/1% SOC anchor
+trusted 0% SOC anchor
 ```
 
 This is intentional because intermediate SOC values can be unreliable, while
@@ -307,48 +326,66 @@ event_discharge_id                 boss-friendly Event 1, 2, ...
 cumulative_all_discharge_ah/wh     physical usage axis for prediction
 ```
 
-Future rows are scenario estimates for the next full discharge events. They
-assume each future full discharge contributes roughly the latest measured
-capacity to cumulative throughput.
+The current implementation accepts only exact `100%` start anchors and exact
+`0%` end anchors for measured capacity rows. Near-full or near-empty events are
+still useful in the usage ledger, but they are not treated as complete capacity
+measurements.
 
 ## Build Capacity ML Forecast
 
-After the capacity trend layer exists, build the machine-learning forecast layer:
+After the capacity trend layer exists, build the capacity ML forecast layer:
 
 ```powershell
 python -m src.capacity_ml --serial 300000172
 ```
 
-This reads the latest `capacity_run` for the serial and writes:
+For the current validation and 10-year forecast workflow:
+
+```powershell
+python -m src.capacity_ml --serial 300000172 --degradation-model usage_linear --training-cutoff "2025-12-31T23:59:59+00:00" --validation-end "2026-05-31T23:59:59+00:00" --future-days 3650 --step-days 30
+```
+
+This reads the latest `capacity_run` for the serial and writes one timestamped
+ML run:
 
 ```text
 data/processed/capacity_ml/
   serial=300000172/
-    ml_run=20260515T100000Z/
+    ml_run=20260611T134511Z/
       ml_training_table.parquet
+      ml_all_capacity_rows.parquet
       model_summary.parquet
+      degradation_model_summary.parquet
       model_summary.json
       capacity_forecast.parquet
       model_backtest.parquet
+      cutoff_validation.parquet
+      cutoff_forecast_validation.parquet
 ```
 
-The ML target is measured capacity from the full anchor-to-anchor discharges:
+The target is measured capacity from exact full anchor-to-anchor discharges:
 
 ```text
 capacity_ah
 capacity_wh
 ```
 
-BMS SOH is not used as training truth. It is only marked as reliable for
-comparison after:
+BMS SOH is not used as training truth. The model learns from measured
+`capacity_ah`. BMS SOH is kept only for comparison after the configured
+reliable point:
 
 ```text
 BMS_SOH_RELIABLE_AFTER=2025-03-21T18:45:00+00:00
 ```
 
-The ML stage fits two kinds of models using NumPy.
+If `NOMINAL_CAPACITY_AH` is left empty, nominal capacity is inferred from the
+measured `capacity_ah` of `event_discharge_id == 1`. This keeps SOH relative to
+the first complete measured full-discharge capacity rather than a hardcoded
+nameplate value.
 
-First, it fits flexible historical-description models:
+The ML stage fits two families of models using NumPy.
+
+First, it fits flexible statistical capacity models:
 
 ```text
 capacity vs event_discharge_id
@@ -359,45 +396,132 @@ capacity vs quadratic cumulative usage
 capacity vs cumulative usage + calendar age
 ```
 
-Second, it fits a degradation forecast model from the calculated capacity loss
-after the reliable/stable period:
+These are useful for comparison and validation. The selected model is stored in
+`best_capacity_ah_model` and its prediction is stored as
+`statistical_predicted_capacity_ah`.
+
+Second, it fits the forecast-facing degradation model:
 
 ```text
-capacity_loss_ah = learned_degradation_rate * cumulative_discharge_usage
-predicted_capacity_ah = learned_baseline_capacity_ah - capacity_loss_ah
+capacity_loss_ah = intercept_loss_ah
+                 + loss_slope_per_1000ah * cumulative_usage_since_reference / 1000
+
+predicted_capacity_ah = baseline_capacity_ah - capacity_loss_ah
+predicted_soh_pct = predicted_capacity_ah / nominal_capacity_ah * 100
 ```
 
-The flexible model is kept for comparison as
-`statistical_predicted_capacity_ah`. The forecast-facing columns use the
-degradation model:
+The forecast-facing columns use this degradation model:
 
 ```text
 predicted_capacity_ah
+predicted_measured_soh_pct
 predicted_future_soh_pct
 ```
 
-The forecast table creates low, normal, and high future-usage scenarios. These
-scenarios project future cumulative usage and then predict future capacity and
-measured SOH:
+### Usage-Rate Models
+
+The current default forecast compares three ways of estimating future daily
+discharge usage from the training-period usage ledger:
 
 ```text
-predicted_measured_soh_pct = predicted_capacity_ah / NOMINAL_CAPACITY_AH * 100
-predicted_future_soh_pct   = same value, clearer forecast-facing name
+historical_mean     average Ah/day over the training history
+historical_median   median daily Ah over the full training history
+recent_median       median daily Ah over the recent lookback window
 ```
 
-Custom scenarios can be passed as multipliers of historical usage:
+The usage ledger includes every observed discharge, including partial
+discharges, and daily usage is allocated by interval overlap. If a discharge
+crosses midnight, its Ah/Wh is split across the affected calendar days by
+duration.
+
+The selected usage-rate models are controlled by:
+
+```text
+USAGE_RATE_MODES=historical_mean,historical_median,recent_median
+RECENT_USAGE_DAYS=90
+```
+
+You can still pass custom scenario multipliers when needed:
 
 ```powershell
-python -m src.capacity_ml --serial 300000172 --scenarios low=0.5,normal=1.0,high=1.5
+python -m src.capacity_ml --serial 300000172 --scenarios low=0.7,normal=1.0,high=1.3
 ```
 
-For a 10-year forecast, use `3650` forecast days:
+### Validation Logic
 
-```powershell
-python -m src.capacity_ml --serial 300000172 --future-days 3650 --step-days 30
+There are two validation outputs:
+
+```text
+cutoff_validation.parquet
+cutoff_forecast_validation.parquet
 ```
 
-To generate an interactive usage and SOH forecast graph from the latest ML run:
+`cutoff_validation.parquet` validates the degradation model against hidden
+post-cutoff capacity rows using their actual cumulative Ah. It answers:
+
+```text
+If actual future usage were known, how well does the degradation model predict capacity?
+```
+
+`cutoff_forecast_validation.parquet` validates the full future-forecast logic.
+It uses only the training-period usage estimate to predict future cumulative Ah,
+then compares the predicted Jan-May 2026 capacity/SOH against the actual hidden
+Jan-May 2026 measurements. It answers:
+
+```text
+If we stopped learning at the cutoff, which usage-rate model best predicts the hidden future period?
+```
+
+When a training cutoff is provided, forecast validation is anchored at the
+cutoff using known training-period cumulative Ah from the discharge usage
+ledger:
+
+```text
+forecast_anchor_time = training_cutoff
+forecast_anchor_source = usage_ledger_training_cutoff
+```
+
+This avoids leaking validation data while also avoiding an unfair forecast from
+the last capacity event if the last event is earlier than the cutoff.
+
+The forecast validation also estimates usage-rate uncertainty. It fits:
+
+```text
+cumulative_Ah_error = intercept + daily_Ah_error_slope * days_after_cutoff
+```
+
+This separates an initial offset from ongoing daily drift. The drift slope is
+then projected to the forecasted 80% SOH point and converted into:
+
+```text
+projected_soh_error_pct_slope
+estimated 80% date uncertainty
+```
+
+### Forecast Outputs
+
+`capacity_forecast.parquet` contains one forecast curve per usage-rate model.
+Important columns include:
+
+```text
+usage_rate_model
+forecast_ah_per_day
+forecast_timestamp
+cumulative_all_discharge_ah
+equivalent_full_cycles
+predicted_capacity_ah
+predicted_future_soh_pct
+projected_soh_error_pct_slope
+projected_soh_error_pct_final
+```
+
+The `equivalent_full_cycles` column is calculated from cumulative discharged Ah
+divided by nominal capacity. It is used as a warranty-friendly cycle-equivalent
+axis and includes the effect of partial discharges through cumulative Ah.
+
+### Plot Forecast Results
+
+Generate an interactive HTML forecast graph from the latest ML run:
 
 ```powershell
 python -m src.plot_capacity_forecast --serial 300000172
@@ -409,32 +533,40 @@ This writes:
 data/validation_plots/capacity_usage_forecast_serial_300000172.html
 ```
 
-The graph shows:
+The HTML graph shows historical capacity measurements, predicted capacity/SOH,
+future cumulative Ah, hover details, and uncertainty values for each usage-rate
+model.
 
-```text
-historical cumulative discharged Ah
-future cumulative discharged Ah for low/normal/high usage
-measured historical capacity and SOH
-predicted future capacity and SOH
-backtest actual capacity vs predicted capacity
-holdout prediction error in Ah and SOH %
+Generate a Confluence-ready static PNG report:
+
+```powershell
+python -m src.plot_capacity_forecast_report_image --serial 300000172
 ```
 
-The backtest hides the newest historical capacity measurements, trains on the
-older measurements, and predicts the hidden ones. The important validation
-columns are:
+This writes:
 
 ```text
-actual_capacity_ah
-predicted_capacity_ah
-capacity_error_ah
-actual_soh_pct
-predicted_soh_pct
-soh_error_pct
+data/validation_plots/capacity_forecast_report_serial_300000172_ml_run_<run_id>.png
 ```
 
-This tells you how wrong the model was on data it was not allowed to learn
-from, which is the practical uncertainty check for the future SOH forecast.
+The PNG report summarizes:
+
+```text
+training cutoff
+validation period
+degradation model and loss slope
+forecast usage-rate models
+validation MAE and max SOH error
+80% SOH crossing month
+80% SOH uncertainty
+80% date uncertainty
+80% equivalent full cycles
+10-year predicted SOH
+```
+
+The final report is intended to connect raw telemetry, measured capacity,
+validated degradation behavior, future usage assumptions, and the predicted
+80% SOH threshold in one auditable output.
 
 ## Extension Points
 
