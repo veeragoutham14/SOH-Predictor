@@ -1,0 +1,97 @@
+{
+  "capacity_run_dir": "C:\\Users\\GouthamVeera\\Documents\\Veera_SOH\\data\\processed\\capacity_trend\\serial=300000172\\capacity_run=20260528T120638Z",
+  "nominal_capacity_ah": 50.0,
+  "bms_soh_reliable_after": "2025-03-21 18:45:00+00:00",
+  "min_reasonable_capacity_ah": 30.0,
+  "max_reasonable_capacity_ah": 55.0,
+  "exclude_statistical_outliers": false,
+  "training_cutoff": "2025-12-31 23:59:59+00:00",
+  "validation_end": "2026-05-31 23:59:59+00:00",
+  "internal_holdout_fraction": 0.0,
+  "usage_rates": {
+    "source": "discharge_usage_ledger",
+    "historical_ah_per_day": 84.26905148103407,
+    "historical_wh_per_day": 16765.326114772764
+  },
+  "scenarios": {
+    "low_usage": 0.7,
+    "normal_usage": 1.0,
+    "high_usage": 1.3
+  },
+  "best_capacity_ah_model": {
+    "model_name": "event_linear",
+    "target_column": "capacity_ah",
+    "feature_columns": [
+      "event_discharge_id"
+    ],
+    "intercept": 47.708084593268225,
+    "coefficients": [
+      -0.00452095794647673
+    ],
+    "train_rows": 516,
+    "train_rmse": 0.6555316247129633,
+    "train_mae": 0.2789737723954773,
+    "holdout_rows": 0,
+    "holdout_rmse": NaN,
+    "holdout_mae": NaN,
+    "residual_std": 0.6561677545324331
+  },
+  "best_capacity_wh_model": {
+    "model_name": "usage_calendar_linear",
+    "target_column": "capacity_wh",
+    "feature_columns": [
+      "_usage_wh_k",
+      "calendar_age_days"
+    ],
+    "intercept": 9593.3887076108,
+    "coefficients": [
+      0.10361490686796983,
+      -2.7688182628127387
+    ],
+    "train_rows": 516,
+    "train_rmse": 121.41255018374916,
+    "train_mae": 62.08581706608686,
+    "holdout_rows": 0,
+    "holdout_rmse": NaN,
+    "holdout_mae": NaN,
+    "residual_std": 121.53036928006445
+  },
+  "degradation_forecast_model": {
+    "model_name": "degradation_usage_linear",
+    "target_column": "capacity_ah",
+    "feature_column": "cumulative_all_discharge_ah_since_reference",
+    "baseline_capacity_ah": 46.936683333333335,
+    "reference_cumulative_ah": 17555.80007594506,
+    "intercept_loss_ah": 0.0,
+    "loss_slope_per_1000ah": 0.06901198901042656,
+    "train_rows": 302,
+    "train_rmse": 0.24977007175009083,
+    "train_mae": 0.22668008921458338,
+    "holdout_rows": 0,
+    "holdout_rmse": NaN,
+    "holdout_mae": NaN,
+    "residual_std": 0.14418032749010323
+  },
+  "degradation_backtest": {
+    "backtest_available": false,
+    "reason": "Internal holdout disabled.",
+    "rows": 302
+  },
+  "cutoff_validation": {
+    "validation_available": true,
+    "rows": 242,
+    "start_time": "2026-01-09 12:45:32+00:00",
+    "end_time": "2026-05-20 16:12:14+00:00",
+    "mae_ah": 0.08756346538713636,
+    "rmse_ah": 0.10977306707065787,
+    "mae_soh_pct": 0.17512693077427272,
+    "max_abs_soh_error_pct": 0.6399582788926068,
+    "capacity_ah_model": "degradation_usage_linear"
+  },
+  "all_capacity_rows": 758,
+  "training_rows": 516,
+  "valid_training_rows": 516,
+  "post_cutoff_rows": 242,
+  "post_cutoff_valid_rows": 242,
+  "forecast_rows": 363
+}

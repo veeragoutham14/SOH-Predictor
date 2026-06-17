@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Raw extracts are large and can be regenerated from the database.
+data/raw_parquet/**
+!data/raw_parquet/.gitkeep
+
+# Local scratch outputs.
+data/tmp/**
+!data/tmp/.gitkeep

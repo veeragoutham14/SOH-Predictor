@@ -1,0 +1,77 @@
+{
+  "capacity_run_dir": "C:\\Users\\GouthamVeera\\Documents\\Veera_SOH\\data\\processed\\capacity_trend\\serial=300000172\\capacity_run=20260521T082249Z",
+  "nominal_capacity_ah": 50.0,
+  "bms_soh_reliable_after": "2025-03-21 18:45:00+00:00",
+  "min_reasonable_capacity_ah": 30.0,
+  "max_reasonable_capacity_ah": 55.0,
+  "exclude_statistical_outliers": false,
+  "usage_rates": {
+    "source": "discharge_usage_ledger",
+    "historical_ah_per_day": 84.81617368207188,
+    "historical_wh_per_day": 16873.494638158172
+  },
+  "scenarios": {
+    "low_usage": 0.7,
+    "normal_usage": 1.0,
+    "high_usage": 1.3
+  },
+  "best_capacity_ah_model": {
+    "model_name": "usage_calendar_linear",
+    "target_column": "capacity_ah",
+    "feature_columns": [
+      "_usage_ah_k",
+      "calendar_age_days"
+    ],
+    "intercept": 47.85478851440327,
+    "coefficients": [
+      0.05482207852347837,
+      -0.00932759004739172
+    ],
+    "train_rows": 1100,
+    "train_rmse": 0.6751560413737602,
+    "train_mae": 0.3207239447672383,
+    "holdout_rows": 220,
+    "holdout_rmse": 0.2718512224403896,
+    "holdout_mae": 0.24890940612503315,
+    "residual_std": 0.6737110647102927
+  },
+  "best_capacity_wh_model": {
+    "model_name": "usage_calendar_linear",
+    "target_column": "capacity_wh",
+    "feature_columns": [
+      "_usage_wh_k",
+      "calendar_age_days"
+    ],
+    "intercept": 9563.205259649314,
+    "coefficients": [
+      0.10543217988979964,
+      -2.7857563419689915
+    ],
+    "train_rows": 1100,
+    "train_rmse": 121.26695021768518,
+    "train_mae": 59.17312151400387,
+    "holdout_rows": 220,
+    "holdout_rmse": 46.48184849548361,
+    "holdout_mae": 40.54835315521319,
+    "residual_std": 121.09826060609801
+  },
+  "degradation_forecast_model": {
+    "model_name": "degradation_usage_linear",
+    "target_column": "capacity_ah",
+    "feature_column": "cumulative_all_discharge_ah_since_reference",
+    "baseline_capacity_ah": 46.936683333333335,
+    "reference_cumulative_ah": 17555.80007594506,
+    "intercept_loss_ah": 0.34217318464189117,
+    "loss_slope_per_1000ah": 0.04907908897471027,
+    "train_rows": 755,
+    "train_rmse": 0.34846752294746347,
+    "train_mae": 0.2825514917533752,
+    "holdout_rows": 151,
+    "holdout_rmse": 0.3157196597972875,
+    "holdout_mae": 0.30984265219537527,
+    "residual_std": 0.34314059807800135
+  },
+  "training_rows": 1100,
+  "valid_training_rows": 1100,
+  "forecast_rows": 363
+}

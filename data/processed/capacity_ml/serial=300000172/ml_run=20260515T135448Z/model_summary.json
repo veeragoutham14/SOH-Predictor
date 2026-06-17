@@ -1,0 +1,59 @@
+{
+  "capacity_run_dir": "C:\\Users\\GouthamVeera\\Documents\\Veera_SOH\\data\\processed\\capacity_trend\\serial=300000172\\capacity_run=20260515T135409Z",
+  "nominal_capacity_ah": 50.0,
+  "bms_soh_reliable_after": "2025-03-21 18:45:00+00:00",
+  "min_reasonable_capacity_ah": 30.0,
+  "max_reasonable_capacity_ah": 55.0,
+  "exclude_statistical_outliers": false,
+  "usage_rates": {
+    "source": "discharge_usage_ledger",
+    "historical_ah_per_day": 80.43835502191924,
+    "historical_wh_per_day": 16008.17580009264
+  },
+  "scenarios": {
+    "low_usage": 0.7,
+    "normal_usage": 1.0,
+    "high_usage": 1.3
+  },
+  "best_capacity_ah_model": {
+    "model_name": "usage_log",
+    "target_column": "capacity_ah",
+    "feature_columns": [
+      "_usage_ah_log1p"
+    ],
+    "intercept": 51.54919674434809,
+    "coefficients": [
+      -0.5260770042245805
+    ],
+    "train_rows": 645,
+    "train_rmse": 0.8517316771131325,
+    "train_mae": 0.3916605190821312,
+    "holdout_rows": 129,
+    "holdout_rmse": 0.4325835275880954,
+    "holdout_mae": 0.29224487181659864,
+    "residual_std": 0.85128775262287
+  },
+  "best_capacity_wh_model": {
+    "model_name": "usage_quadratic",
+    "target_column": "capacity_wh",
+    "feature_columns": [
+      "_usage_wh_k",
+      "_usage_wh_k_sq"
+    ],
+    "intercept": 9555.179210901706,
+    "coefficients": [
+      -0.1602493978812978,
+      1.7486106256237033e-05
+    ],
+    "train_rows": 645,
+    "train_rmse": 150.71108734303564,
+    "train_mae": 61.77772171694849,
+    "holdout_rows": 129,
+    "holdout_rmse": 73.33651374276072,
+    "holdout_mae": 45.79528383266261,
+    "residual_std": 150.82170053467507
+  },
+  "training_rows": 645,
+  "valid_training_rows": 645,
+  "forecast_rows": 36
+}
