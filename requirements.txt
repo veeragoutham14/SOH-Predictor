@@ -5,3 +5,4 @@ psycopg2-binary>=2.9
 python-dotenv>=1.0
 plotly>=5.20
 matplotlib>=3.8
+streamlit>=1.58
