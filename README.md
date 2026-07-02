@@ -95,6 +95,31 @@ RECENT_USAGE_DAYS=90
 
 Never commit `.env` or extracted raw data.
 
+## Run HMI
+
+Launch the local pipeline HMI after installing dependencies by double-clicking:
+
+```text
+run_hmi.bat
+```
+
+Or start it from PowerShell:
+
+```powershell
+streamlit run src/hmi_app.py
+```
+
+The HMI is an operator interface over the existing pipeline modules, not a CLI
+replacement screen. Operators select a battery serial, choose a workflow button,
+adjust dates and forecast options with widgets, and review status, logs, and
+reports in the browser. The generated module commands are kept only in the
+Audit tab for traceability and debugging.
+
+For a local-data workflow, use `Forecast From Latest Capacity Data` or
+`Process Existing Raw Data`. For a database workflow, configure `.env`, choose
+`Extract From Database And Forecast`, and provide the start and end dates from
+the sidebar date controls.
+
 ## Run Extraction
 
 Extract one battery serial over a time range:
