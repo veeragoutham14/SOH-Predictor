@@ -75,6 +75,18 @@ def _env_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer.") from exc
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value.")
+
+
 @dataclass(frozen=True)
 class DBConfig:
     host: str
@@ -194,6 +206,8 @@ class CapacityModelConfig:
     bms_soh_reliable_after: str = "2025-03-21T18:45:00+00:00"
     min_reasonable_capacity_ah: float = 30.0
     max_reasonable_capacity_ah: float = 55.0
+    exclude_high_rest_ratio_capacity_rows: bool = False
+    max_rest_to_discharge_ratio_for_training: float = 1.0
     usage_rate_mode: str = "historical_mean"
     usage_rate_modes: str = "historical_mean,historical_median,recent_median"
     recent_usage_days: int = 90
@@ -214,6 +228,14 @@ class CapacityModelConfig:
             max_reasonable_capacity_ah=_env_float(
                 "MAX_REASONABLE_CAPACITY_AH",
                 cls.max_reasonable_capacity_ah,
+            ),
+            exclude_high_rest_ratio_capacity_rows=_env_bool(
+                "EXCLUDE_HIGH_REST_RATIO_CAPACITY_ROWS",
+                cls.exclude_high_rest_ratio_capacity_rows,
+            ),
+            max_rest_to_discharge_ratio_for_training=_env_float(
+                "MAX_REST_TO_DISCHARGE_RATIO_FOR_TRAINING",
+                cls.max_rest_to_discharge_ratio_for_training,
             ),
             usage_rate_mode=os.getenv(
                 "USAGE_RATE_MODE",

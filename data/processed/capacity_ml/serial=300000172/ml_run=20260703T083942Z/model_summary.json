@@ -1,0 +1,175 @@
+{
+  "capacity_run_dir": "C:\\Users\\GouthamVeera\\Documents\\Veera_SOH\\data\\processed\\capacity_trend\\serial=300000172\\capacity_run=20260617T092639Z",
+  "nominal_capacity_ah": 48.95088055555556,
+  "nominal_capacity_source": "event_discharge_id_1_capacity",
+  "bms_soh_reliable_after": "2025-03-21 18:45:00+00:00",
+  "min_reasonable_capacity_ah": 30.0,
+  "max_reasonable_capacity_ah": 55.0,
+  "exclude_statistical_outliers": false,
+  "exclude_high_rest_ratio_capacity_rows": false,
+  "max_rest_to_discharge_ratio_for_training": 1.0,
+  "training_cutoff": null,
+  "validation_end": null,
+  "internal_holdout_fraction": 0.2,
+  "degradation_model_type": "usage_linear",
+  "degradation_baseline_capacity_ah": null,
+  "degradation_baseline_method": "max",
+  "usage_rate_modes": [
+    "historical_mean",
+    "historical_median",
+    "recent_median"
+  ],
+  "usage_rates": {
+    "source": "discharge_usage_ledger",
+    "usage_rate_mode": "historical_mean",
+    "recent_usage_days": 90,
+    "daily_usage_allocation": "interval_overlap",
+    "historical_ah_per_day": 84.81617368207188,
+    "historical_wh_per_day": 16873.494638158172,
+    "historical_median_ah_per_day": 94.14569166666666,
+    "historical_median_wh_per_day": 18690.123077305558,
+    "recent_median_ah_per_day": 121.52776641758969,
+    "recent_median_wh_per_day": 24223.49652536223,
+    "forecast_ah_per_day": 84.81617368207188,
+    "forecast_wh_per_day": 16873.494638158172
+  },
+  "usage_rates_by_model": {
+    "historical_mean": {
+      "source": "discharge_usage_ledger",
+      "usage_rate_mode": "historical_mean",
+      "recent_usage_days": 90,
+      "daily_usage_allocation": "interval_overlap",
+      "historical_ah_per_day": 84.81617368207188,
+      "historical_wh_per_day": 16873.494638158172,
+      "historical_median_ah_per_day": 94.14569166666666,
+      "historical_median_wh_per_day": 18690.123077305558,
+      "recent_median_ah_per_day": 121.52776641758969,
+      "recent_median_wh_per_day": 24223.49652536223,
+      "forecast_ah_per_day": 84.81617368207188,
+      "forecast_wh_per_day": 16873.494638158172
+    },
+    "historical_median": {
+      "source": "discharge_usage_ledger",
+      "usage_rate_mode": "historical_median",
+      "recent_usage_days": 90,
+      "daily_usage_allocation": "interval_overlap",
+      "historical_ah_per_day": 84.81617368207188,
+      "historical_wh_per_day": 16873.494638158172,
+      "historical_median_ah_per_day": 94.14569166666666,
+      "historical_median_wh_per_day": 18690.123077305558,
+      "recent_median_ah_per_day": 121.52776641758969,
+      "recent_median_wh_per_day": 24223.49652536223,
+      "forecast_ah_per_day": 94.14569166666666,
+      "forecast_wh_per_day": 18690.123077305558
+    },
+    "recent_median": {
+      "source": "discharge_usage_ledger",
+      "usage_rate_mode": "recent_median",
+      "recent_usage_days": 90,
+      "daily_usage_allocation": "interval_overlap",
+      "historical_ah_per_day": 84.81617368207188,
+      "historical_wh_per_day": 16873.494638158172,
+      "historical_median_ah_per_day": 94.14569166666666,
+      "historical_median_wh_per_day": 18690.123077305558,
+      "recent_median_ah_per_day": 121.52776641758969,
+      "recent_median_wh_per_day": 24223.49652536223,
+      "forecast_ah_per_day": 121.52776641758969,
+      "forecast_wh_per_day": 24223.49652536223
+    }
+  },
+  "scenarios": {
+    "historical_mean": 1.0,
+    "historical_median": 1.0,
+    "recent_median": 1.0
+  },
+  "best_capacity_ah_model": {
+    "model_name": "event_linear",
+    "target_column": "capacity_ah",
+    "feature_columns": [
+      "event_discharge_id"
+    ],
+    "intercept": 47.745249702329616,
+    "coefficients": [
+      -0.004718856819008927
+    ],
+    "train_rows": 758,
+    "train_rmse": 0.5462214697488179,
+    "train_mae": 0.22806214407774,
+    "holdout_rows": 152,
+    "holdout_rmse": 0.12995093910662744,
+    "holdout_mae": 0.11851182980236007,
+    "residual_std": 0.5465716433561297
+  },
+  "best_capacity_wh_model": {
+    "model_name": "event_linear",
+    "target_column": "capacity_wh",
+    "feature_columns": [
+      "event_discharge_id"
+    ],
+    "intercept": 9498.38455455732,
+    "coefficients": [
+      -0.9571286141369851
+    ],
+    "train_rows": 758,
+    "train_rmse": 102.92510044592122,
+    "train_mae": 49.50530779539107,
+    "holdout_rows": 152,
+    "holdout_rmse": 34.49462803046668,
+    "holdout_mae": 29.8509790523282,
+    "residual_std": 102.95294388582084
+  },
+  "degradation_forecast_model": {
+    "model_name": "degradation_usage_linear",
+    "target_column": "capacity_ah",
+    "feature_column": "cumulative_all_discharge_ah_since_reference",
+    "baseline_capacity_ah": 46.936683333333335,
+    "reference_cumulative_ah": 17555.80007594506,
+    "intercept_loss_ah": 0.0,
+    "loss_slope_per_1000ah": 0.07528958747394526,
+    "train_rows": 544,
+    "train_rmse": 0.3151014814631332,
+    "train_mae": 0.3000535857560364,
+    "holdout_rows": 109,
+    "holdout_rmse": 0.3256020007057005,
+    "holdout_mae": 0.3180279904543171,
+    "residual_std": 0.12633341425937017,
+    "calendar_loss_per_day": 0.0,
+    "reference_calendar_age_days": 243.5516898148148,
+    "baseline_capacity_method": "max_training_capacity"
+  },
+  "degradation_backtest": {
+    "backtest_available": true,
+    "model_name": "degradation_usage_linear",
+    "train_rows": 435,
+    "holdout_rows": 109,
+    "train_mae_ah": 0.2955496544638236,
+    "holdout_mae_ah": 0.3180279904543171,
+    "holdout_rmse_ah": 0.3256020007057005,
+    "holdout_mae_soh_pct": 0.6496879869063427,
+    "holdout_max_abs_soh_error_pct": 0.955059720081735,
+    "baseline_capacity_ah": 46.936683333333335,
+    "loss_slope_per_1000ah": 0.07528958747394526,
+    "calendar_loss_per_day": 0.0,
+    "baseline_capacity_method": "max_training_capacity",
+    "train_end_time": "2026-04-04 19:46:15+00:00",
+    "holdout_start_time": "2026-04-05 04:39:30+00:00"
+  },
+  "cutoff_validation": {
+    "validation_available": false,
+    "reason": "No rows after training cutoff.",
+    "rows": 0
+  },
+  "cutoff_forecast_validation": {
+    "validation_available": false,
+    "reason": "Missing training or post-cutoff validation rows.",
+    "rows": 0
+  },
+  "all_capacity_rows": 758,
+  "training_rows": 758,
+  "valid_training_rows": 758,
+  "rest_ratio_training_excluded_rows": 0,
+  "all_rest_ratio_training_excluded_rows": 0,
+  "post_cutoff_rows": 0,
+  "post_cutoff_valid_rows": 0,
+  "forecast_rows": 363
+}

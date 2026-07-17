@@ -49,7 +49,9 @@ def default_output_path(
         f"capacity_usage_forecast_serial_{_safe_label(serial)}_"
         f"ml_run_{_safe_label(run_label)}.html"
     )
-    return _non_overwriting_path(data_dir / "validation_plots" / filename)
+    return _non_overwriting_path(
+        data_dir / "validation_plots" / f"serial={_safe_label(serial)}" / filename
+    )
 
 
 def find_latest_ml_run(capacity_ml_dir: Path, serial: str | int) -> Path:

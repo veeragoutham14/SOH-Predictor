@@ -64,7 +64,9 @@ def default_output_path(data_dir: Path, serial: str | int, ml_run_dir: Path) -> 
         f"capacity_forecast_report_serial_{_safe_label(serial)}_"
         f"ml_run_{_safe_label(run_label)}.png"
     )
-    return _non_overwriting_path(data_dir / "validation_plots" / filename)
+    return _non_overwriting_path(
+        data_dir / "validation_plots" / f"serial={_safe_label(serial)}" / filename
+    )
 
 
 def load_outputs(ml_run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:

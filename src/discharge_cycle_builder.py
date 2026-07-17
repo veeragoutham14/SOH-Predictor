@@ -50,6 +50,51 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     return float(value)
 
 
+def _add_capacity_duration_quality_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Add rest/discharge duration quality signals for full capacity rows."""
+    work = df.copy()
+    discharge_seconds = pd.to_numeric(
+        work["discharge_duration_seconds"],
+        errors="coerce",
+    )
+    rest_seconds = pd.to_numeric(
+        work["rest_duration_seconds"],
+        errors="coerce",
+    )
+    total_seconds = discharge_seconds + rest_seconds
+
+    work["rest_to_discharge_ratio"] = np.where(
+        discharge_seconds.gt(0),
+        rest_seconds / discharge_seconds,
+        np.nan,
+    )
+    work["rest_fraction"] = np.where(
+        total_seconds.gt(0),
+        rest_seconds / total_seconds,
+        np.nan,
+    )
+    work["capacity_measurement_duration_valid"] = (
+        discharge_seconds.gt(0) & rest_seconds.ge(0)
+    )
+    work["long_rest_capacity_measurement"] = (
+        pd.Series(work["rest_to_discharge_ratio"], index=work.index)
+        .gt(1.0)
+        .fillna(False)
+    )
+    work["capacity_measurement_quality"] = np.select(
+        [
+            ~work["capacity_measurement_duration_valid"],
+            work["long_rest_capacity_measurement"],
+        ],
+        [
+            "invalid_duration",
+            "long_rest_interrupted",
+        ],
+        default="clean_anchor_100_to_0",
+    )
+    return work
+
+
 def _path_partition_values(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     for part in path.parts:
@@ -505,6 +550,7 @@ def build_capacity_measurements(
     complete = pd.DataFrame(measurements)
     complete = complete.sort_values(["serial", "start_anchor_time"], kind="mergesort")
     complete["event_discharge_id"] = complete.groupby("serial").cumcount() + 1
+    complete = _add_capacity_duration_quality_columns(complete)
 
     columns = [
         "event_discharge_id",
@@ -519,6 +565,11 @@ def build_capacity_measurements(
         "bms_soh_end",
         "discharge_duration_seconds",
         "rest_duration_seconds",
+        "rest_to_discharge_ratio",
+        "rest_fraction",
+        "capacity_measurement_duration_valid",
+        "long_rest_capacity_measurement",
+        "capacity_measurement_quality",
         "num_discharge_events",
         "source_event_ids",
         "quality_flag",

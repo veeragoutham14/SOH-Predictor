@@ -38,6 +38,7 @@ Required packages:
 - `python-dotenv` for `.env` loading
 - `plotly` for interactive HTML validation and forecast graphs
 - `matplotlib` for Confluence-ready static PNG reports
+- `streamlit` for the local browser-based HMI
 
 ## Configure
 
@@ -94,6 +95,35 @@ RECENT_USAGE_DAYS=90
 ```
 
 Never commit `.env` or extracted raw data.
+
+## Run HMI
+
+Launch the local pipeline HMI after installing dependencies by double-clicking:
+
+```text
+run_hmi.bat
+```
+
+Or start it from PowerShell:
+
+```powershell
+.\venv\Scripts\python.exe -m streamlit run src\hmi_app.py
+```
+
+The HMI is an operator interface over the existing pipeline modules. Operators
+select a battery serial, choose a workflow button, adjust dates and forecast
+options with widgets, and review status, logs, and reports in the browser. The
+generated module commands are kept in the Audit tab for traceability and
+debugging.
+
+For a local-data workflow, use `Forecast From Latest Capacity Data` or `Process
+Existing Raw Data`. For a database workflow, configure `.env`, choose `Extract
+From Database And Forecast`, and provide the start and end dates from the sidebar
+date controls.
+
+The current HMI wraps the full-cycle capacity pipeline. The partial-discharge
+pipeline remains available from the terminal and can be exposed as a separate
+HMI workflow when its modeling choices are settled.
 
 ## Run Extraction
 
@@ -186,7 +216,7 @@ timestamp range that does not cover the expected month.
 To create an interactive SOC-over-time graph for a suspicious month:
 
 ```powershell
-python -m src.plot_raw_signal --input data\raw_parquet\serial=300000172\year=2024\month=08 --output data\validation_plots\august_2024_soc.html --title "Serial 300000172 SOC - August 2024" --ylabel "SOC (%)"
+python -m src.plot_raw_signal --input data\raw_parquet\serial=300000172\year=2024\month=08 --output data\validation_plots\serial=300000172\august_2024_soc.html --title "Serial 300000172 SOC - August 2024" --ylabel "SOC (%)"
 ```
 
 The output is an interactive HTML graph with zoom, pan, hover, a range slider,
@@ -383,6 +413,37 @@ measured `capacity_ah` of `event_discharge_id == 1`. This keeps SOH relative to
 the first complete measured full-discharge capacity rather than a hardcoded
 nameplate value.
 
+Capacity rows also carry rest/discharge duration quality columns:
+
+```text
+rest_to_discharge_ratio
+rest_fraction
+capacity_measurement_duration_valid
+long_rest_capacity_measurement
+capacity_measurement_quality
+rest_ratio_training_excluded
+```
+
+By default, long-rest rows are kept so the pipeline remains fully auditable.
+When long rest periods are believed to distort measured capacity, training can
+exclude rows whose rest time is larger than discharge time:
+
+```powershell
+python -m src.capacity_ml --serial 300000172 --exclude-high-rest-ratio-capacity-rows --max-rest-to-discharge-ratio 1.0
+```
+
+This does not delete the rows. It sets `valid_training_row = False` for rows
+above the configured `rest_duration_seconds / discharge_duration_seconds`
+threshold. The rows remain visible in `ml_all_capacity_rows.parquet`, and the
+run summary records whether the filter was enabled.
+
+The same behavior can be configured in `.env`:
+
+```text
+EXCLUDE_HIGH_REST_RATIO_CAPACITY_ROWS=false
+MAX_REST_TO_DISCHARGE_RATIO_FOR_TRAINING=1.0
+```
+
 The ML stage fits two families of models using NumPy.
 
 First, it fits flexible statistical capacity models:
@@ -408,6 +469,15 @@ capacity_loss_ah = intercept_loss_ah
 
 predicted_capacity_ah = baseline_capacity_ah - capacity_loss_ah
 predicted_soh_pct = predicted_capacity_ah / nominal_capacity_ah * 100
+```
+
+By default, `cumulative_usage_since_reference` starts at the minimum
+`cumulative_all_discharge_ah` in the fitted degradation rows. For transfer
+experiments, the degradation model can instead be anchored to a known clean
+reference cycle and forced through zero loss at that reference:
+
+```powershell
+python -m src.capacity_ml --serial 300000172 --exclude-high-rest-ratio-capacity-rows --max-rest-to-discharge-ratio 1.0 --degradation-baseline-capacity-ah 48.95088055555556 --degradation-reference-cumulative-ah 48.95088055555556 --degradation-force-zero-intercept --training-cutoff "2025-12-31T23:59:59+00:00" --validation-end "2026-05-31T23:59:59+00:00" --future-days 3650 --step-days 30
 ```
 
 The forecast-facing columns use this degradation model:
@@ -530,7 +600,7 @@ python -m src.plot_capacity_forecast --serial 300000172
 This writes:
 
 ```text
-data/validation_plots/capacity_usage_forecast_serial_300000172.html
+data/validation_plots/serial=300000172/capacity_usage_forecast_serial_300000172_ml_run_<run_id>.html
 ```
 
 The HTML graph shows historical capacity measurements, predicted capacity/SOH,
@@ -546,7 +616,7 @@ python -m src.plot_capacity_forecast_report_image --serial 300000172
 This writes:
 
 ```text
-data/validation_plots/capacity_forecast_report_serial_300000172_ml_run_<run_id>.png
+data/validation_plots/serial=300000172/capacity_forecast_report_serial_300000172_ml_run_<run_id>.png
 ```
 
 The PNG report summarizes:

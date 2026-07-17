@@ -38,6 +38,13 @@ def _non_overwriting_path(path: Path) -> Path:
     raise FileExistsError(f"Could not find an unused output filename near: {path}")
 
 
+def _serial_partition_label(path: Path) -> str | None:
+    for part in reversed(path.parts):
+        if part.startswith("serial=") and len(part) > len("serial="):
+            return _safe_label(part.removeprefix("serial="))
+    return None
+
+
 def default_output_path(
     *,
     data_dir: Path,
@@ -50,7 +57,11 @@ def default_output_path(
         f"raw_signal_{_safe_label(value_col)}_"
         f"{_safe_label(input_path.name)}_{run_label}.html"
     )
-    return _non_overwriting_path(data_dir / "validation_plots" / filename)
+    serial_label = _serial_partition_label(input_path)
+    output_dir = data_dir / "validation_plots"
+    if serial_label is not None:
+        output_dir = output_dir / f"serial={serial_label}"
+    return _non_overwriting_path(output_dir / filename)
 
 
 def load_signal_from_parquet(

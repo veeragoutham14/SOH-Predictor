@@ -198,10 +198,14 @@ def prepare_training_table(
     min_reasonable_capacity_ah: float,
     max_reasonable_capacity_ah: float,
     exclude_statistical_outliers: bool = False,
+    exclude_high_rest_ratio_capacity_rows: bool = False,
+    max_rest_to_discharge_ratio_for_training: float = 1.0,
 ) -> pd.DataFrame:
     """Build the capacity ML table from anchor-based capacity measurements."""
     if measurements.empty:
         return pd.DataFrame()
+    if max_rest_to_discharge_ratio_for_training <= 0:
+        raise ValueError("max_rest_to_discharge_ratio_for_training must be greater than 0.")
 
     work = measurements.copy()
     work["start_anchor_time"] = pd.to_datetime(
@@ -226,6 +230,8 @@ def prepare_training_table(
             "bms_soh_end",
             "discharge_duration_seconds",
             "rest_duration_seconds",
+            "rest_to_discharge_ratio",
+            "rest_fraction",
             "num_discharge_events",
         ],
     )
@@ -247,6 +253,58 @@ def prepare_training_table(
         np.nan,
     )
 
+    discharge_seconds = pd.to_numeric(
+        work.get(
+            "discharge_duration_seconds",
+            pd.Series(np.nan, index=work.index),
+        ),
+        errors="coerce",
+    )
+    rest_seconds = pd.to_numeric(
+        work.get(
+            "rest_duration_seconds",
+            pd.Series(np.nan, index=work.index),
+        ),
+        errors="coerce",
+    )
+    total_seconds = discharge_seconds + rest_seconds
+    work["rest_to_discharge_ratio"] = np.where(
+        discharge_seconds.gt(0),
+        rest_seconds / discharge_seconds,
+        np.nan,
+    )
+    work["rest_fraction"] = np.where(
+        total_seconds.gt(0),
+        rest_seconds / total_seconds,
+        np.nan,
+    )
+    work["capacity_measurement_duration_valid"] = (
+        discharge_seconds.gt(0) & rest_seconds.ge(0)
+    )
+    work["long_rest_capacity_measurement"] = (
+        pd.Series(work["rest_to_discharge_ratio"], index=work.index)
+        .gt(max_rest_to_discharge_ratio_for_training)
+        .fillna(False)
+    )
+    work["capacity_measurement_quality"] = np.select(
+        [
+            ~work["capacity_measurement_duration_valid"],
+            work["long_rest_capacity_measurement"],
+        ],
+        [
+            "invalid_duration",
+            "long_rest_interrupted",
+        ],
+        default="clean_anchor_100_to_0",
+    )
+    work["rest_ratio_training_excluded"] = (
+        exclude_high_rest_ratio_capacity_rows
+        & (
+            ~work["capacity_measurement_duration_valid"]
+            | work["long_rest_capacity_measurement"]
+        )
+    )
+
     work["capacity_reasonable"] = work["capacity_ah"].between(
         min_reasonable_capacity_ah,
         max_reasonable_capacity_ah,
@@ -263,6 +321,10 @@ def prepare_training_table(
     if exclude_statistical_outliers:
         work["valid_training_row"] = (
             work["valid_training_row"] & ~work["capacity_statistical_outlier"]
+        )
+    if exclude_high_rest_ratio_capacity_rows:
+        work["valid_training_row"] = (
+            work["valid_training_row"] & ~work["rest_ratio_training_excluded"]
         )
 
     return add_model_features(work)
@@ -534,6 +596,8 @@ def _fit_degradation_model_from_rows(
     baseline_capacity_ah: float | None = None,
     baseline_method: str = "max",
     baseline_rows: pd.DataFrame | None = None,
+    reference_cumulative_ah: float | None = None,
+    force_zero_intercept: bool = False,
 ) -> FittedDegradationModel | None:
     """Fit the capacity-loss model from an already-selected training window."""
     if len(fit_rows) < 2:
@@ -542,7 +606,13 @@ def _fit_degradation_model_from_rows(
     fit_rows = fit_rows.sort_values("end_anchor_time", kind="mergesort")
     metric_rows = fit_rows if metric_rows is None else metric_rows
 
-    reference_cumulative_ah = float(fit_rows["cumulative_all_discharge_ah"].min())
+    if reference_cumulative_ah is not None and reference_cumulative_ah < 0:
+        raise ValueError("reference_cumulative_ah must be nonnegative.")
+    resolved_reference_cumulative_ah = (
+        float(reference_cumulative_ah)
+        if reference_cumulative_ah is not None
+        else float(fit_rows["cumulative_all_discharge_ah"].min())
+    )
     baseline_source = fit_rows if baseline_rows is None else baseline_rows
     baseline_capacity_ah, resolved_baseline_method = _baseline_capacity_from_rows(
         baseline_source,
@@ -554,16 +624,22 @@ def _fit_degradation_model_from_rows(
     )
     x = (
         pd.to_numeric(fit_rows["cumulative_all_discharge_ah"], errors="coerce")
-        - reference_cumulative_ah
+        - resolved_reference_cumulative_ah
     ).clip(lower=0.0) / 1000.0
     y = (baseline_capacity_ah - fit_rows["capacity_ah"]).clip(lower=0.0)
     y_array = y.to_numpy(dtype=float)
 
     if degradation_model_type == "usage_linear":
-        design = np.column_stack([np.ones(len(fit_rows)), x.to_numpy(dtype=float)])
-        coefficients, *_ = np.linalg.lstsq(design, y_array, rcond=None)
-        intercept_loss_ah = max(0.0, float(coefficients[0]))
-        loss_slope_per_1000ah = max(0.0, float(coefficients[1]))
+        if force_zero_intercept:
+            design = x.to_numpy(dtype=float).reshape(-1, 1)
+            coefficients, *_ = np.linalg.lstsq(design, y_array, rcond=None)
+            intercept_loss_ah = 0.0
+            loss_slope_per_1000ah = max(0.0, float(coefficients[0]))
+        else:
+            design = np.column_stack([np.ones(len(fit_rows)), x.to_numpy(dtype=float)])
+            coefficients, *_ = np.linalg.lstsq(design, y_array, rcond=None)
+            intercept_loss_ah = max(0.0, float(coefficients[0]))
+            loss_slope_per_1000ah = max(0.0, float(coefficients[1]))
         calendar_loss_per_day = 0.0
         model_name = "degradation_usage_linear"
         feature_column = "cumulative_all_discharge_ah_since_reference"
@@ -572,17 +648,29 @@ def _fit_degradation_model_from_rows(
             pd.to_numeric(fit_rows["calendar_age_days"], errors="coerce")
             - reference_calendar_age_days
         ).clip(lower=0.0)
-        design = np.column_stack(
-            [
-                np.ones(len(fit_rows)),
-                x.to_numpy(dtype=float),
-                calendar_days.to_numpy(dtype=float),
-            ]
-        )
-        coefficients = _nonnegative_least_squares(design, y_array)
-        intercept_loss_ah = float(coefficients[0])
-        loss_slope_per_1000ah = float(coefficients[1])
-        calendar_loss_per_day = float(coefficients[2])
+        if force_zero_intercept:
+            design = np.column_stack(
+                [
+                    x.to_numpy(dtype=float),
+                    calendar_days.to_numpy(dtype=float),
+                ]
+            )
+            coefficients = _nonnegative_least_squares(design, y_array)
+            intercept_loss_ah = 0.0
+            loss_slope_per_1000ah = float(coefficients[0])
+            calendar_loss_per_day = float(coefficients[1])
+        else:
+            design = np.column_stack(
+                [
+                    np.ones(len(fit_rows)),
+                    x.to_numpy(dtype=float),
+                    calendar_days.to_numpy(dtype=float),
+                ]
+            )
+            coefficients = _nonnegative_least_squares(design, y_array)
+            intercept_loss_ah = float(coefficients[0])
+            loss_slope_per_1000ah = float(coefficients[1])
+            calendar_loss_per_day = float(coefficients[2])
         model_name = "degradation_usage_calendar_constrained"
         feature_column = (
             "cumulative_all_discharge_ah_since_reference,"
@@ -596,7 +684,7 @@ def _fit_degradation_model_from_rows(
         target_column="capacity_ah",
         feature_column=feature_column,
         baseline_capacity_ah=baseline_capacity_ah,
-        reference_cumulative_ah=reference_cumulative_ah,
+        reference_cumulative_ah=resolved_reference_cumulative_ah,
         intercept_loss_ah=intercept_loss_ah,
         loss_slope_per_1000ah=loss_slope_per_1000ah,
         train_rows=len(metric_rows),
@@ -641,6 +729,8 @@ def fit_degradation_usage_model(
     degradation_model_type: str = "usage_linear",
     baseline_capacity_ah: float | None = None,
     baseline_method: str = "max",
+    reference_cumulative_ah: float | None = None,
+    force_zero_intercept: bool = False,
 ) -> FittedDegradationModel | None:
     """Fit a physically directed capacity-loss model from calculated capacity.
 
@@ -676,6 +766,8 @@ def fit_degradation_usage_model(
         baseline_capacity_ah=baseline_capacity_ah,
         baseline_method=baseline_method,
         baseline_rows=baseline_rows,
+        reference_cumulative_ah=reference_cumulative_ah,
+        force_zero_intercept=force_zero_intercept,
     )
     if model is None:
         return None
@@ -716,6 +808,8 @@ def build_degradation_backtest_table(
     degradation_model_type: str = "usage_linear",
     baseline_capacity_ah: float | None = None,
     baseline_method: str = "max",
+    reference_cumulative_ah: float | None = None,
+    force_zero_intercept: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Hide the newest capacity rows and test the degradation forecast on them."""
     rows = _degradation_candidate_rows(training_table)
@@ -773,6 +867,8 @@ def build_degradation_backtest_table(
         baseline_capacity_ah=baseline_capacity_ah,
         baseline_method=baseline_method,
         baseline_rows=baseline_rows,
+        reference_cumulative_ah=reference_cumulative_ah,
+        force_zero_intercept=force_zero_intercept,
     )
     if model is None:
         summary = {
@@ -1886,12 +1982,16 @@ def build_capacity_ml_forecast(
     min_reasonable_capacity_ah: float,
     max_reasonable_capacity_ah: float,
     exclude_statistical_outliers: bool = False,
+    exclude_high_rest_ratio_capacity_rows: bool = False,
+    max_rest_to_discharge_ratio_for_training: float = 1.0,
     training_cutoff: pd.Timestamp | None = None,
     validation_end: pd.Timestamp | None = None,
     internal_holdout_fraction: float | None = None,
     degradation_model_type: str = "usage_linear",
     degradation_baseline_capacity_ah: float | None = None,
     degradation_baseline_method: str | None = None,
+    degradation_reference_cumulative_ah: float | None = None,
+    degradation_force_zero_intercept: bool = False,
     usage_rate_modes: Sequence[str] = DEFAULT_USAGE_RATE_MODES,
     usage_rate_mode: str = "historical_mean",
     recent_usage_days: int = 90,
@@ -1914,6 +2014,8 @@ def build_capacity_ml_forecast(
         min_reasonable_capacity_ah=min_reasonable_capacity_ah,
         max_reasonable_capacity_ah=max_reasonable_capacity_ah,
         exclude_statistical_outliers=exclude_statistical_outliers,
+        exclude_high_rest_ratio_capacity_rows=exclude_high_rest_ratio_capacity_rows,
+        max_rest_to_discharge_ratio_for_training=max_rest_to_discharge_ratio_for_training,
     )
     if training_table.empty:
         raise ValueError("No capacity measurements available for ML.")
@@ -1960,6 +2062,8 @@ def build_capacity_ml_forecast(
         degradation_model_type=degradation_model_type,
         baseline_capacity_ah=degradation_baseline_capacity_ah,
         baseline_method=resolved_baseline_method,
+        reference_cumulative_ah=degradation_reference_cumulative_ah,
+        force_zero_intercept=degradation_force_zero_intercept,
     )
     backtest_table, backtest_summary = build_degradation_backtest_table(
         model_training_table,
@@ -1968,6 +2072,8 @@ def build_capacity_ml_forecast(
         degradation_model_type=degradation_model_type,
         baseline_capacity_ah=degradation_baseline_capacity_ah,
         baseline_method=resolved_baseline_method,
+        reference_cumulative_ah=degradation_reference_cumulative_ah,
+        force_zero_intercept=degradation_force_zero_intercept,
     )
     cutoff_validation_table, cutoff_validation_summary = build_cutoff_validation_table(
         cutoff_validation_source,
@@ -2071,12 +2177,16 @@ def build_capacity_ml_forecast(
             "min_reasonable_capacity_ah": min_reasonable_capacity_ah,
             "max_reasonable_capacity_ah": max_reasonable_capacity_ah,
             "exclude_statistical_outliers": exclude_statistical_outliers,
+            "exclude_high_rest_ratio_capacity_rows": exclude_high_rest_ratio_capacity_rows,
+            "max_rest_to_discharge_ratio_for_training": max_rest_to_discharge_ratio_for_training,
             "training_cutoff": str(training_cutoff) if training_cutoff is not None else None,
             "validation_end": str(validation_end) if validation_end is not None else None,
             "internal_holdout_fraction": effective_holdout_fraction,
             "degradation_model_type": degradation_model_type,
             "degradation_baseline_capacity_ah": degradation_baseline_capacity_ah,
             "degradation_baseline_method": resolved_baseline_method,
+            "degradation_reference_cumulative_ah": degradation_reference_cumulative_ah,
+            "degradation_force_zero_intercept": degradation_force_zero_intercept,
             "usage_rate_modes": list(selected_usage_rate_modes),
             "usage_rates": primary_usage_rates,
             "usage_rates_by_model": usage_rates_by_model,
@@ -2098,6 +2208,16 @@ def build_capacity_ml_forecast(
             "all_capacity_rows": len(training_table),
             "training_rows": len(model_training_table),
             "valid_training_rows": int(model_training_table["valid_training_row"].sum()),
+            "rest_ratio_training_excluded_rows": int(
+                model_training_table["rest_ratio_training_excluded"].sum()
+            )
+            if "rest_ratio_training_excluded" in model_training_table.columns
+            else 0,
+            "all_rest_ratio_training_excluded_rows": int(
+                training_table["rest_ratio_training_excluded"].sum()
+            )
+            if "rest_ratio_training_excluded" in training_table.columns
+            else 0,
             "post_cutoff_rows": len(cutoff_validation_source),
             "post_cutoff_valid_rows": int(
                 cutoff_validation_source["valid_training_row"].sum()
@@ -2126,6 +2246,18 @@ def build_capacity_ml_forecast(
         )
     logger.info("Capacity ML training rows: %s", len(model_training_table))
     logger.info("Valid capacity ML training rows: %s", int(model_training_table["valid_training_row"].sum()))
+    if exclude_high_rest_ratio_capacity_rows:
+        excluded_rows = (
+            int(model_training_table["rest_ratio_training_excluded"].sum())
+            if "rest_ratio_training_excluded" in model_training_table.columns
+            else 0
+        )
+        logger.info(
+            "Long-rest capacity filter excluded %s pre-cutoff rows "
+            "(rest/discharge ratio > %.3f).",
+            excluded_rows,
+            max_rest_to_discharge_ratio_for_training,
+        )
     if training_cutoff is not None:
         logger.info("Training cutoff: %s", training_cutoff)
         logger.info("Post-cutoff validation rows: %s", len(cutoff_validation_source))
@@ -2192,6 +2324,36 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exclude MAD-based capacity outliers from model fitting.",
     )
+    rest_filter_group = parser.add_mutually_exclusive_group()
+    rest_filter_group.add_argument(
+        "--exclude-high-rest-ratio-capacity-rows",
+        action="store_true",
+        default=None,
+        help=(
+            "Exclude full-cycle capacity rows from fitting when "
+            "rest_duration_seconds / discharge_duration_seconds exceeds the "
+            "configured threshold."
+        ),
+    )
+    rest_filter_group.add_argument(
+        "--include-high-rest-ratio-capacity-rows",
+        action="store_true",
+        default=None,
+        help=(
+            "Disable the high rest/discharge ratio training filter, even if it "
+            "is enabled in the environment."
+        ),
+    )
+    parser.add_argument(
+        "--max-rest-to-discharge-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Rest/discharge duration ratio above which capacity rows are "
+            "excluded when --exclude-high-rest-ratio-capacity-rows is active. "
+            "Default is 1.0."
+        ),
+    )
     parser.add_argument("--future-days", type=int, default=365, help="Forecast horizon in days.")
     parser.add_argument("--step-days", type=int, default=30, help="Forecast interval in days.")
     parser.add_argument(
@@ -2241,6 +2403,25 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Baseline method when no explicit baseline is provided. Defaults to "
             "first for usage_calendar_constrained and max for usage_linear."
+        ),
+    )
+    parser.add_argument(
+        "--degradation-reference-cumulative-ah",
+        type=float,
+        default=None,
+        help=(
+            "Optional cumulative_all_discharge_ah reference for degradation loss "
+            "features. When omitted, the minimum cumulative Ah in the fitted "
+            "degradation rows is used."
+        ),
+    )
+    parser.add_argument(
+        "--degradation-force-zero-intercept",
+        action="store_true",
+        help=(
+            "Force the degradation loss model through zero loss at the configured "
+            "reference cumulative Ah. Use with an explicit baseline to model a "
+            "fresh/reference capacity point."
         ),
     )
     parser.add_argument(
@@ -2330,6 +2511,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.usage_rate_mode is not None
             else parse_usage_rate_modes(args.usage_rate_modes or model_config.usage_rate_modes)
         )
+        if args.exclude_high_rest_ratio_capacity_rows:
+            exclude_high_rest_ratio_capacity_rows = True
+        elif args.include_high_rest_ratio_capacity_rows:
+            exclude_high_rest_ratio_capacity_rows = False
+        else:
+            exclude_high_rest_ratio_capacity_rows = (
+                model_config.exclude_high_rest_ratio_capacity_rows
+            )
+        max_rest_to_discharge_ratio = (
+            args.max_rest_to_discharge_ratio
+            if args.max_rest_to_discharge_ratio is not None
+            else model_config.max_rest_to_discharge_ratio_for_training
+        )
         build_capacity_ml_forecast(
             capacity_run_dir=capacity_run_dir,
             output_base_dir=storage_config.capacity_ml_dir,
@@ -2346,12 +2540,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.max_capacity_ah is not None
             else model_config.max_reasonable_capacity_ah,
             exclude_statistical_outliers=args.exclude_statistical_outliers,
+            exclude_high_rest_ratio_capacity_rows=exclude_high_rest_ratio_capacity_rows,
+            max_rest_to_discharge_ratio_for_training=max_rest_to_discharge_ratio,
             training_cutoff=training_cutoff,
             validation_end=validation_end,
             internal_holdout_fraction=args.internal_holdout_fraction,
             degradation_model_type=args.degradation_model,
             degradation_baseline_capacity_ah=args.degradation_baseline_capacity_ah,
             degradation_baseline_method=args.degradation_baseline_method,
+            degradation_reference_cumulative_ah=args.degradation_reference_cumulative_ah,
+            degradation_force_zero_intercept=args.degradation_force_zero_intercept,
             usage_rate_modes=usage_rate_modes,
             usage_rate_mode=args.usage_rate_mode or model_config.usage_rate_mode,
             recent_usage_days=args.recent_usage_days
