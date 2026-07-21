@@ -11,6 +11,25 @@ __pycache__/
 data/raw_parquet/**
 !data/raw_parquet/.gitkeep
 
-# Local scratch outputs.
+# Generated pipeline artifacts. Recreate these by rerunning the pipeline instead
+# of storing every device/run output in Git.
+data/processed/classified_rows/**
+!data/processed/classified_rows/.gitkeep
+data/processed/events/**
+!data/processed/events/.gitkeep
+data/processed/capacity_trend/**
+!data/processed/capacity_trend/.gitkeep
+data/processed/capacity_ml/**
+!data/processed/capacity_ml/.gitkeep
+data/processed/partial_capacity_ml/**
+!data/processed/partial_capacity_ml/.gitkeep
+data/validation_plots/**
+!data/validation_plots/.gitkeep
+
+# Local platform/catalog artifacts.
+data/catalog/**
+!data/catalog/.gitkeep
+data/runs/**
+!data/runs/.gitkeep
 data/tmp/**
 !data/tmp/.gitkeep

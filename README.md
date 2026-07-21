@@ -121,9 +121,7 @@ Existing Raw Data`. For a database workflow, configure `.env`, choose `Extract
 From Database And Forecast`, and provide the start and end dates from the sidebar
 date controls.
 
-The current HMI wraps the full-cycle capacity pipeline. The partial-discharge
-pipeline remains available from the terminal and can be exposed as a separate
-HMI workflow when its modeling choices are settled.
+The current HMI wraps the full-cycle capacity pipeline.
 
 ## Run Extraction
 
