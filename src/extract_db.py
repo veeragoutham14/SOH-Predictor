@@ -9,14 +9,6 @@ from typing import Sequence
 from uuid import uuid4
 
 import pandas as pd
-
-from src.config import (
-    DBConfig,
-    SignalColumnConfig,
-    StorageConfig,
-    get_extraction_column_profile,
-    get_extraction_columns,
-)
 from src.db import (
     DEFAULT_SERIAL_COL,
     DEFAULT_TABLE,
@@ -25,6 +17,15 @@ from src.db import (
     cursor_column_names,
     open_db_connection,
 )
+from src.logging_utils import configure_logging
+
+from src.config import (
+    DBConfig,
+    SignalColumnConfig,
+    StorageConfig,
+    get_extraction_column_profile,
+    get_extraction_columns,
+)
 from src.io_utils import (
     build_partition_dir,
     iter_month_ranges,
@@ -32,8 +33,6 @@ from src.io_utils import (
     parse_timestamp,
     write_parquet_chunk,
 )
-from src.logging_utils import configure_logging
-
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +185,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=None, help="Optional maximum rows to extract.")
     parser.add_argument("--chunk-size", type=int, default=100_000, help="Rows fetched and written per chunk.")
     parser.add_argument("--column-profile", default=None, help="Configured extraction column profile to use.")
+    parser.add_argument(
+        "--column-catalog",
+        type=Path,
+        default=None,
+        help="Optional versioned JSON catalog containing physical extraction profiles.",
+    )
     parser.add_argument("--output-dir", type=Path, default=None, help="Override raw Parquet output directory.")
     parser.add_argument("--env-file", type=Path, default=None, help="Path to a .env file.")
     parser.add_argument("--table", default=DEFAULT_TABLE, help="Source table, optionally schema qualified.")
@@ -224,8 +229,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         storage_config.ensure_dirs()
         signal_columns = SignalColumnConfig.from_env(args.env_file)
-        column_profile = get_extraction_column_profile(args.column_profile)
-        columns = get_extraction_columns(signal_columns, profile=column_profile)
+        column_profile = get_extraction_column_profile(
+            args.column_profile,
+            catalog_path=args.column_catalog,
+        )
+        columns = get_extraction_columns(
+            signal_columns,
+            profile=column_profile,
+            catalog_path=args.column_catalog,
+        )
 
         intervals = (
             [(args.start, args.end)]

@@ -279,6 +279,8 @@ def run_fixed_slope_verification(
     bms_tolerance_pct: float,
     aggregation: str,
     output_base_dir: Path,
+    module_count: int | None = None,
+    slope_reference_module_count: int | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
     compression: str | None = "snappy",
@@ -286,6 +288,10 @@ def run_fixed_slope_verification(
 ) -> Path:
     if nominal_capacity_ah <= 0:
         raise ValueError("nominal_capacity_ah must be positive")
+    if module_count is not None and module_count <= 0:
+        raise ValueError("module_count must be positive")
+    if slope_reference_module_count is not None and slope_reference_module_count <= 0:
+        raise ValueError("slope_reference_module_count must be positive")
     observations, quality = build_usage_observations(events, aggregation=aggregation)
     if start is not None:
         observations = observations[
@@ -409,6 +415,8 @@ def run_fixed_slope_verification(
         "serial": serial,
         "nominal_capacity_ah": nominal_capacity_ah,
         "nominal_capacity_source": "explicit",
+        "module_count": module_count,
+        "slope_reference_module_count": slope_reference_module_count,
         "anchor_mode": anchor_mode,
         "reference_cumulative_ah": resolved_reference_ah,
         "anchor_soh_pct": anchor_soh_pct,
@@ -426,6 +434,7 @@ def run_fixed_slope_verification(
             else 0.0,
             "baseline_capacity_method": anchor_mode,
             "slope_source": "user_supplied_transfer",
+            "slope_reference_module_count": slope_reference_module_count,
         },
         "cutoff_validation": {
             "validation_available": True,
@@ -486,6 +495,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--env-file", type=Path, default=None)
     parser.add_argument("--nominal-capacity-ah", type=float, required=True)
+    parser.add_argument("--module-count", type=int, default=None)
+    parser.add_argument("--slope-reference-module-count", type=int, default=None)
     parser.add_argument("--loss-slopes-per-1000ah", required=True)
     parser.add_argument(
         "--anchor-mode",
@@ -541,6 +552,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             bms_tolerance_pct=args.bms_tolerance_pct,
             aggregation=args.aggregation,
             output_base_dir=output_base,
+            module_count=args.module_count,
+            slope_reference_module_count=args.slope_reference_module_count,
             start=args.start,
             end=args.end,
             compression=compression,

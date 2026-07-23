@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
@@ -309,15 +309,45 @@ EXTRACTION_COLUMN_PROFILES: dict[str, tuple[str, ...]] = {
 }
 
 
-def get_extraction_column_profile(profile: str | None = None) -> str:
+def _catalog_column_profiles(
+    catalog_path: str | Path | None,
+) -> dict[str, tuple[str, ...]]:
+    if catalog_path is None:
+        return {}
+    path = Path(catalog_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Extraction signal catalog does not exist: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, dict):
+        raise ValueError(f"Signal catalog has no profiles object: {path}")
+    resolved: dict[str, tuple[str, ...]] = {}
+    for name, definition in profiles.items():
+        columns = definition.get("columns") if isinstance(definition, dict) else definition
+        if not isinstance(columns, list) or not columns or not all(
+            isinstance(column, str) and column.strip() for column in columns
+        ):
+            raise ValueError(f"Invalid column profile {name!r} in {path}")
+        resolved[str(name).strip().lower()] = tuple(dict.fromkeys(columns))
+    return resolved
+
+
+def get_extraction_column_profile(
+    profile: str | None = None,
+    *,
+    catalog_path: str | Path | None = None,
+) -> str:
     """Resolve and validate the configured extraction column profile name."""
     profile_name = (
         profile
         or os.getenv("EXTRACTION_COLUMN_PROFILE", DEFAULT_EXTRACTION_COLUMN_PROFILE)
     ).strip().lower()
 
-    if profile_name not in EXTRACTION_COLUMN_PROFILES:
-        available = ", ".join(sorted(EXTRACTION_COLUMN_PROFILES))
+    available_profiles = set(EXTRACTION_COLUMN_PROFILES) | set(
+        _catalog_column_profiles(catalog_path)
+    )
+    if profile_name not in available_profiles:
+        available = ", ".join(sorted(available_profiles))
         raise ValueError(
             f"Unknown extraction column profile: {profile_name}. "
             f"Available profiles: {available}"
@@ -329,9 +359,16 @@ def get_extraction_columns(
     signal_columns: SignalColumnConfig,
     *,
     profile: str | None = None,
+    catalog_path: str | Path | None = None,
 ) -> tuple[str, ...]:
     """Return physical database column names for a configured pipeline profile."""
-    profile_name = get_extraction_column_profile(profile)
+    profile_name = get_extraction_column_profile(
+        profile,
+        catalog_path=catalog_path,
+    )
+    catalog_profiles = _catalog_column_profiles(catalog_path)
+    if profile_name in catalog_profiles:
+        return catalog_profiles[profile_name]
     logical_names = EXTRACTION_COLUMN_PROFILES[profile_name]
     physical_names = [getattr(signal_columns, name) for name in logical_names]
     return tuple(dict.fromkeys(physical_names))

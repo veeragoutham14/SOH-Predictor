@@ -23,6 +23,10 @@ data/processed/capacity_ml/**
 !data/processed/capacity_ml/.gitkeep
 data/processed/partial_capacity_ml/**
 !data/processed/partial_capacity_ml/.gitkeep
+data/processed/device_metadata/**
+!data/processed/device_metadata/.gitkeep
+data/processed/fixed_slope_verification/**
+!data/processed/fixed_slope_verification/.gitkeep
 data/validation_plots/**
 !data/validation_plots/.gitkeep
 
