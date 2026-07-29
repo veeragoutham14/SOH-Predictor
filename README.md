@@ -636,6 +636,41 @@ The final report is intended to connect raw telemetry, measured capacity,
 validated degradation behavior, future usage assumptions, and the predicted
 80% SOH threshold in one auditable output.
 
+## Hierarchical Electrothermal Analysis
+
+For NCA cell-voltage diagnostics, run the three versioned stages in order:
+
+```powershell
+python -m src.bms_electrothermal_source_audit `
+  --serial 300000083 `
+  --module-count 2
+
+python -m src.bms_hierarchical_features `
+  --serial 300000083 `
+  --module-count 2 `
+  --start "2024-06-10T00:00:00+00:00" `
+  --end "2026-07-29T00:00:00+00:00" `
+  --aggregation-minutes 5 `
+  --compression zstd
+
+python -m src.hierarchical_voltage_anomaly `
+  --serial 300000083 `
+  --maximum-evidence-episodes 50 `
+  --compression zstd
+```
+
+The source contract preserves the exact database column plus normalized keys such
+as `m01_p01_cv00` and `m01_p01_t00`. A two-module device therefore has 56 voltage
+channels and 16 pack-temperature sensors. The source audit must pass before feature
+generation. Features are aggregated in PostgreSQL and written in monthly Zstandard
+Parquet partitions; only selected anomaly episodes receive one-second evidence.
+
+Detector severity is anchored to fixed spread bands: 0-10 mV excellent, 10-20 mV
+acceptable, 20-30 mV monitor, 30-50 mV candidate, 50-100 mV engineering review,
+100-200 mV serious, and above 200 mV severe. Pack-peer, low-rank, EWMA, and
+persistence evidence explains candidates without treating BMS signals as calibrated
+physical ground truth.
+
 ## Extension Points
 
 The next modules can be added beside the extractor:

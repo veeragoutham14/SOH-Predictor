@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,7 @@ from src.io_utils import (
 )
 
 logger = logging.getLogger(__name__)
+PART_FILE_PATTERN = re.compile(r"^part-(\d+)\.parquet$")
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,19 @@ def _dataframe_from_rows(rows: list[tuple], columns: Sequence[str]) -> pd.DataFr
     return normalize_timestamp_columns(df)
 
 
+def _next_part_index(output_dir: Path) -> int:
+    """Return the first part number after all existing numbered Parquet files."""
+    highest = -1
+    if output_dir.exists():
+        for path in output_dir.iterdir():
+            if not path.is_file():
+                continue
+            match = PART_FILE_PATTERN.fullmatch(path.name)
+            if match:
+                highest = max(highest, int(match.group(1)))
+    return highest + 1
+
+
 def extract_range_to_parquet(
     request: ExtractRequest,
     *,
@@ -111,6 +126,7 @@ def extract_range_to_parquet(
 
     rows_written = 0
     chunk_count = 0
+    next_part_index = _next_part_index(output_dir)
     files: list[Path] = []
     cursor_name = f"battery_extract_{uuid4().hex}"
 
@@ -129,7 +145,7 @@ def extract_range_to_parquet(
                     columns = cursor_column_names(cur)
 
                 df = _dataframe_from_rows(rows, columns)
-                part_path = output_dir / f"part-{chunk_count:05d}.parquet"
+                part_path = output_dir / f"part-{next_part_index:05d}.parquet"
                 write_parquet_chunk(
                     df,
                     part_path,
@@ -139,6 +155,7 @@ def extract_range_to_parquet(
                 chunk_rows = len(df)
                 rows_written += chunk_rows
                 chunk_count += 1
+                next_part_index += 1
                 files.append(part_path)
 
                 logger.info(

@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+/=
 
 # Raw extracts are large and can be regenerated from the database.
 data/raw_parquet/**
@@ -27,6 +28,20 @@ data/processed/device_metadata/**
 !data/processed/device_metadata/.gitkeep
 data/processed/fixed_slope_verification/**
 !data/processed/fixed_slope_verification/.gitkeep
+data/processed/bms_electrothermal_source_quality/**
+!data/processed/bms_electrothermal_source_quality/.gitkeep
+data/processed/bms_hierarchical_features/**
+!data/processed/bms_hierarchical_features/.gitkeep
+data/processed/cell_anomaly/**
+!data/processed/cell_anomaly/.gitkeep
+data/processed/cell_health/**
+!data/processed/cell_health/.gitkeep
+data/processed/cell_signal_audit/**
+!data/processed/cell_signal_audit/.gitkeep
+data/processed/fleet_soh_audit/**
+!data/processed/fleet_soh_audit/.gitkeep
+data/processed/hierarchical_cell_anomaly/**
+!data/processed/hierarchical_cell_anomaly/.gitkeep
 data/validation_plots/**
 !data/validation_plots/.gitkeep
 
